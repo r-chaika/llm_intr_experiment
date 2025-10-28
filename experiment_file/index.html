@@ -1,16 +1,20 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8"/>
-  <title>jsPsych Basic</title>
+  <meta charset="utf-8" />
+  <title>jsPsych × ChatGPT Experiment</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- jsPsych core + plugins (CDN) -->
-  <script src="https://unpkg.com/jspsych@7.3.3/dist/jspsych.js"></script>
-  <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.1"></script>
-  <script src="https://unpkg.com/@jspsych/plugin-survey-likert@1.1.1"></script>
-  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.1"></script>
-  <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.3/css/jspsych.css" />
+
+  <!-- jsPsych core -->
+  <script src="../jsPsych/packages/jspsych/dist/index.browser.js"></script>
+  <link rel="stylesheet" href="../jsPsych/packages/jspsych/css/jspsych.css" />
+
+  <!-- plugins -->
+  <script src="../jsPsych/packages/plugin-preload/dist/index.browser.js"></script>
+  <script src="../jsPsych/packages/plugin-html-button-response/dist/index.browser.js"></script>
+  <script src="../jsPsych/packages/plugin-html-keyboard-response/dist/index.browser.js"></script>
+  <script src="../jsPsych/packages/plugin-survey-likert/dist/index.browser.js"></script>
 </head>
-<body></body>
+<body style="max-width: 900px; margin: 24px auto;"></body>
 <script src="./app.js"></script>
 </html>

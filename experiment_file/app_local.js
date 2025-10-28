@@ -79,7 +79,7 @@ const chatTrial = {
       .row button { padding:8px 12px; }
       .note { color:#666; font-size:12px; margin-top:8px; }
     </style>
-    <h3>Chat with AI</h3>
+    <h3>AIとの会話</h3>
     <div class="chatbox" id="chatbox"></div>
     <div class="row">
       <input id="chatInput" type="text" placeholder="Type something here…" />
@@ -116,7 +116,10 @@ const chatTrial = {
           body: JSON.stringify({ pid: PID, messages })
         });
         const text = await res.text();
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
+        if (!res.ok) {
+          console.error("CHAT_ENDPOINT error:", res.status, text);
+          throw new Error(`HTTP ${res.status}: ${text}`);
+        }
         return JSON.parse(text);
       } catch (err) {
         throw new Error(`fetch failed: ${String(err)}`);
@@ -139,7 +142,12 @@ const chatTrial = {
         history.push({ role: "assistant", content: atext });
         turnsDone += 1;
 
-        chatLog.push({ turn: turnsDone, user: text, assistant: atext });
+        // 会話ログに保存
+        chatLog.push({
+          turn: turnsDone,
+          user: text,
+          assistant: atext
+        });
 
         if (turnsDone >= chatTurns) {
           input.disabled = true;
@@ -149,6 +157,7 @@ const chatTrial = {
       } catch (e) {
         append("assistant", `System error: ${String(e).slice(0, 200)}`);
         console.error(e);
+        // エラーでも進行不能を防ぐ
         document.querySelector('.jspsych-btn').disabled = false;
       } finally {
         busy = false;
@@ -156,13 +165,16 @@ const chatTrial = {
       }
     }
 
+    // 最初にAIの挨拶
     append("assistant", "Ask me anything:)");
-    //    history.push({ role: "assistant", content: "Ask me anything:)" });
+//    history.push({ role: "assistant", content: "Hi, how are you?" });
+
     document.querySelector('.jspsych-btn').disabled = true;
     send.addEventListener('click', handleSend);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') handleSend(); });
     input.focus();
 
+    // 保存用に chatLog を trial オブジェクトに保持
     jsPsych.pluginAPI.setTimeout(() => {
       jsPsych.data.addProperties({ chat_log: chatLog });
     }, 0);
@@ -191,7 +203,6 @@ const the_end = {
   choices: ['Finish'],
   on_finish: d => d.stage = 'end'
 };
-
 
 // ===== 実行 =====
 jsPsych.run([preload, consent, check_consent, preSurvey, chatTrial, postSurvey, the_end]);
