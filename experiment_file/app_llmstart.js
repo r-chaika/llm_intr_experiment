@@ -3,6 +3,26 @@ const PID = crypto?.randomUUID?.() || `pid-${Math.random().toString(36).slice(2)
 const CHAT_ENDPOINT = "https://sm5asdle3k.execute-api.ap-northeast-3.amazonaws.com/chat";
 const SAVE_ENDPOINT = "https://sm5asdle3k.execute-api.ap-northeast-3.amazonaws.com/save";
 
+// ====================================================================================
+// === 親(QP)へ postMessage するためのユーティリティ ===
+const PARENT_ORIGIN = "https://uniofbath.questionpro.eu";  // ← 実際のドメインに合わせて
+function postToParent(message) {
+  try { window.parent?.postMessage?.(message, PARENT_ORIGIN); } catch (_) {}
+}
+
+// （任意）高さ連携：iframeの見切れ防止
+const postHeight = () => {
+  const h = Math.max(
+    document.body.scrollHeight, document.documentElement.scrollHeight,
+    document.body.offsetHeight,  document.documentElement.offsetHeight
+  );
+  postToParent({ type: "jspsych:resize", height: h });
+};
+new ResizeObserver(postHeight).observe(document.body);
+document.addEventListener('DOMContentLoaded', postHeight);
+
+// ====================================================================================
+
 const jsPsych = initJsPsych({
   on_finish: () => {
     const payload = {
@@ -11,9 +31,14 @@ const jsPsych = initJsPsych({
       ua: navigator.userAgent,
       chosen_model: chosenModel,
       chosen_persona: chosenPersona,
-      chosen_position: chosenPosition, 
+      chosen_position: chosenPosition,
       trials: JSON.parse(jsPsych.data.get().json())
     };
+
+    // ① 親(QP)へ「実験完了＋データ」を通知（これが“Next解放”のトリガーになる）
+    postToParent({ type: 'jspsych:final', payload });
+
+    // ②（任意）参加者の手元にもJSONをダウンロード
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -23,7 +48,6 @@ const jsPsych = initJsPsych({
     URL.revokeObjectURL(a.href);
   }
 });
-
 
 // ===== 事前プリロード =====
 const preload = { type: jsPsychPreload, auto_preload: true };
@@ -64,13 +88,12 @@ const preSurvey = {
 };
 
 // ===== ChatGPTと対話 =====
-const chatTurns = 3;
+const chatTurns = 3;           // アシスタントの応答がこの回数に達したら終了
 const systemPrompt = "";
 
 let chosenModel = "gpt-5-mini";  // 初期値
 let chosenPersona = "";           // 初期値
 let chosenPosition = "pro-immigration";
-
 
 const setupTrial = {
   type: jsPsychHtmlButtonResponse,
@@ -98,9 +121,8 @@ const setupTrial = {
         </div>
         <div class="row" style="align-items:flex-start">
           <label for="personaInput">What does being 'British' mean to you?</label>
-          <textarea id="personaInput" rows="3" placeholder="The English are not a very spiritual people, so they invented cricket to give them some idea of eternity. (Bernard Shaw)" ></textarea>
+          <textarea id="personaInput" rows="3" placeholder="The English are not a very spiritual people, so they invented cricket to give them some idea of eternity. (Bernard Shaw)"></textarea>
         </div>
-
         <div class="row" style="align-items:flex-start">
           <label>AI will ....</label>
           <div class="choices">
@@ -113,16 +135,15 @@ const setupTrial = {
     </div>
   `,
   on_load: () => {
-    const root = document.getElementById('setup-root');                  // ★ これを基準にスコープ
+    const root = document.getElementById('setup-root');
     const sel  = root.querySelector('#modelSelect');
     const ta   = root.querySelector('#personaInput');
     const radios = Array.from(root.querySelectorAll('input[name="position"]'));
 
     function syncSelections() {
-      // これらはグローバルで宣言済み想定: let chosenModel, chosenPersona, chosenPosition;
       chosenModel   = sel?.value ?? 'gpt-5-mini';
       chosenPersona = (ta?.value ?? '').trim().slice(0, 100000);
-      const checked = root.querySelector('input[name="position"]:checked');  // ★ スコープ内
+      const checked = root.querySelector('input[name="position"]:checked');
       chosenPosition = checked?.value ?? 'pro-immigration';
     }
 
@@ -134,7 +155,7 @@ const setupTrial = {
     ta?.addEventListener('input',  syncSelections);
     radios.forEach(r => r.addEventListener('change', syncSelections));
 
-    // 「Start chat」クリックの瞬間にも最終同期＆データ付与
+    // 「Start chat」クリック時の最終同期＆データ付与
     const btn = document.querySelector('.jspsych-btn');
     btn?.addEventListener('click', () => {
       syncSelections();
@@ -147,13 +168,6 @@ const setupTrial = {
     });
   }
 };
-
-
-
-
-
-
-
 
 const chatTrial = {
   type: jsPsychHtmlButtonResponse,
@@ -178,7 +192,7 @@ const chatTrial = {
       <input id="chatInput" type="text" placeholder="Type something here…" />
       <button id="sendBtn">Send</button>
     </div>
-    <p class="note">AI repsponse might take time. Please wait patiently</p>
+    <p class="note">AI response might take time. Please wait patiently</p>
   `,
   on_load: () => {
     const box = document.getElementById('chatbox');
@@ -187,7 +201,7 @@ const chatTrial = {
 
     const history = [];
     const chatLog = [];
-    let turnsDone = 0;
+    let turnsDone = 0;  // アシスタントの応答回数
     let busy = false;
 
     function append(role, text) {
@@ -210,7 +224,7 @@ const chatTrial = {
             pid: PID,
             model: chosenModel,
             systemPrompt: chosenPersona,
-            position: chosenPosition,          
+            position: chosenPosition,
             messages
           })
         });
@@ -221,16 +235,9 @@ const chatTrial = {
         throw new Error(`fetch failed: ${String(err)}`);
       }
     }
-    
 
-    async function handleSend() {
-      if (busy) return;
-      const text = input.value.trim();
-      if (!text) return;
-      input.value = "";
-      append("user", text);
-      history.push({ role: "user", content: text });
-
+    // 共通：LLMに問い合わせてアシスタント応答を描画・記録
+    async function queryAndAppendAssistant() {
       try {
         busy = true;
         const reply = await askLLM(history);
@@ -239,7 +246,8 @@ const chatTrial = {
         history.push({ role: "assistant", content: atext });
         turnsDone += 1;
 
-        chatLog.push({ turn: turnsDone, user: text, assistant: atext });
+        const lastUser = [...history].reverse().find(m => m.role === 'user')?.content ?? null;
+        chatLog.push({ turn: turnsDone, user: lastUser, assistant: atext });
 
         if (turnsDone >= chatTurns) {
           input.disabled = true;
@@ -252,16 +260,39 @@ const chatTrial = {
         document.querySelector('.jspsych-btn').disabled = false;
       } finally {
         busy = false;
-        input.focus();
       }
     }
 
-    //append("assistant", "Explain your position");
-    //    history.push({ role: "assistant", content: "Ask me anything:)" });
+    async function handleSend() {
+      if (busy) return;
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      append("user", text);
+      history.push({ role: "user", content: text });
+
+      await queryAndAppendAssistant();
+      input.focus();
+    }
+
+    // 初手はLLMが開始する
     document.querySelector('.jspsych-btn').disabled = true;
     send.addEventListener('click', handleSend);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') handleSend(); });
-    input.focus();
+
+    // 初回応答が返るまで入力をロック
+    input.disabled = true;
+    send.disabled = true;
+
+    (async function startWithAssistant() {
+      await queryAndAppendAssistant();  // messages は空配列 → Lambda 側の system だけで応答
+      // 返ってきたら解放
+      if (turnsDone < chatTurns) {
+        input.disabled = false;
+        send.disabled = false;
+        input.focus();
+      }
+    })();
 
     jsPsych.pluginAPI.setTimeout(() => {
       jsPsych.data.addProperties({ chat_log: chatLog });
@@ -285,7 +316,6 @@ const postSurvey = {
 };
 
 // ===== データの保存=====
-
 const uploadTrial = {
   type: jsPsychHtmlButtonResponse,
   stimulus: `<h2>Saving your responses...</h2><p>Please wait a moment.</p>`,
@@ -301,7 +331,6 @@ const uploadTrial = {
       const res = await fetch(SAVE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ページ遷移に強くする（対応ブラウザのみ）
         keepalive: true,
         body: JSON.stringify(payload)
       });
@@ -318,7 +347,6 @@ const uploadTrial = {
       a.remove();
       URL.revokeObjectURL(a.href);
 
-      // 失敗メッセージを一応表示してから進める
       const p = document.createElement("p");
       p.style.color = "#b00";
       p.textContent = "Server save failed. Downloaded locally instead.";
@@ -329,7 +357,6 @@ const uploadTrial = {
   }
 };
 
-
 // ===== 終了画面 =====
 const the_end = {
   type: jsPsychHtmlButtonResponse,
@@ -337,7 +364,6 @@ const the_end = {
   choices: ['Finish'],
   on_finish: d => d.stage = 'end'
 };
-
 
 // ===== 実行 =====
 jsPsych.run([preload, consent, check_consent, setupTrial, chatTrial, postSurvey, uploadTrial, the_end]);
